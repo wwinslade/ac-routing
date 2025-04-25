@@ -13,21 +13,33 @@ def path_len(G, path):
   return sum(G[path[i]][path[i+1]]['weight'] for i in range(len(path) - 1))
 
 def link_availability_heuristic(G, current, neighbor, failure_counts):
-  return 1.0
+  # failure_counts: {edge: failure_count}
+  edge = tuple(sorted((current, neighbor)))
+  fail_score = failure_counts.get(edge, 0)
+  edge_weight = G[current][neighbor]['weight']
+  
+  return (1.0 / edge_weight) * math.exp(-fail_score)
+
+def connectivity_heuristic(G, current, neighbor):
+  edge_weight = G[current][neighbor]['weight']
+  degree = G.degree(neighbor)
+
+  return (degree / edge_weight)
 
 def default_heuristic(G, current, neighbor):
   edge_weight = G[current][neighbor]['weight']
-  return (1.0 / edge_weight) ** beta
+  return (1.0 / edge_weight)
 
 
 def calculate_heuristic(G, current, neighbor):
   ''' Calculates the heuristic of the path to each neighbor '''
   handlers = {
-    'link-availability': link_availability_heuristic
+    'link-availability': link_availability_heuristic,
+    'connectivity': connectivity_heuristic
   }
   if heuristic_method and heuristic_method not in handlers:
     print('Unrecognized heuristic method specified -- Using default (inverse weight)')
-    
+
   handler = handlers.get(heuristic_method, default_heuristic)
   return handler(G, current, neighbor)
   
@@ -56,7 +68,7 @@ def choose_next_node(G, pheromone, current, visited):
     edge = tuple(sorted((current, neighbor)))
     pher = pheromone[edge] ** alpha
     heuristic = calculate_heuristic(G, current, neighbor)
-    weights.append(pher * heuristic)
+    weights.append(pher * (heuristic ** beta))
   
   # Create a probability distribution from the weights, pick the next node using that dist
   total = sum(weights)
