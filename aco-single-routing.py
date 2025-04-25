@@ -389,7 +389,11 @@ if __name__ == '__main__':
     src_node = min(G.nodes)
 
   dst_arg = args.dst_nodes
-  if dst_arg:
+  if dst_arg is None:
+    dst_nodes = [max(G.nodes)]
+  elif dst_arg.lower() == 'all':
+    dst_nodes = [n for n in G.nodes if n != src_node]
+  else:
     try:
       dst = int(dst_arg)
       if dst not in G.nodes:
@@ -399,8 +403,8 @@ if __name__ == '__main__':
       dst_nodes = []
     except ValueError as e:
       raise RuntimeError(f'Invalid --dst-nodes argument: {e}')
-  else:
-    dst_nodes = [max(G.nodes)]
+
+    
 
   # Create pheromone table
   pheromone = {tuple(sorted((u, v))): 1.0 for u, v in G.edges}
@@ -408,6 +412,7 @@ if __name__ == '__main__':
   # For animation layout: positions
   pos = nx.spring_layout(G, seed=69)
 
+  # Prep pyplot subplot for visualization
   fig, (ax_graph, ax_table) = plt.subplots(1, 2, figsize=(12, 8), gridspec_kw={'width_ratios': [4, 2]})
   plt.tight_layout(rect=[0, 0, 1, 0.95])
   plt.ion()
