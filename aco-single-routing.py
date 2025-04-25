@@ -25,7 +25,9 @@ def calculate_heuristic(G, current, neighbor):
   handlers = {
     'link-availability': link_availability_heuristic
   }
-
+  if heuristic_method and heuristic_method not in handlers:
+    print('Unrecognized heuristic method specified -- Using default (inverse weight)')
+    
   handler = handlers.get(heuristic_method, default_heuristic)
   return handler(G, current, neighbor)
   
