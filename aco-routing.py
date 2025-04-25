@@ -202,7 +202,7 @@ async def run_simulation(src_node, link_sever_prob, link_sever_time):
     ant_id = 0
     for dst_node in G.nodes:
       if dst_node != src_node:
-        for ant_id in range(num_ants):
+        for _ in range(num_ants):
           ant_tasks.append(ant_agent(G, pheromone, src_node, dst_node, ant_id))
           ant_id += 1
     
