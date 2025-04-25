@@ -308,8 +308,8 @@ def argument_parser():
                                    description='ANTI-RIP: Ant-based Network Traffic Intelligent Routing & Improvement Protocol',
                                    epilog='Created by William Winslade on 24 April 2025')
   parser.add_argument('-G', '--graph-file', help='file path to user specified graph description', default='', type=str)
-  parser.add_argument('-SN', '--src-node', help='ID of source node', default=0, type=int)
-  parser.add_argument('-DN', '--dst-node', help='ID of destination node', default=-1, type=int)
+  parser.add_argument('-SN', '--src-node', help='ID of source node', default=None, type=int)
+  parser.add_argument('-DN', '--dst-nodes', help='ID of destination node(s). Pass "all" to route to all non-source nodes', default=None, type=str)
   parser.add_argument('-A', '--alpha', help='alpha parameter', default=1.0, type=float)
   parser.add_argument('-B', '--beta', help='beta parameter', default=2.0, type=float)
   parser.add_argument('-N', '--num-ants', help='number of ant agents', default=10, type=int)
@@ -345,7 +345,7 @@ if __name__ == '__main__':
   ## Graph and pheromone table creation
   global G, pos, pheromone, ant_states, failure_counts
 
-  # Check if the user specified a graph file
+  # Deal with graphfile argument, initialize the graph
   if graph_file:
     # If the user passed the below string, call the equivalent networkx graph generator
     if graph_file == 'nx.random_geometric_graph':
@@ -357,7 +357,6 @@ if __name__ == '__main__':
         distance = math.hypot(x1 - x2, y1 - y2)
         G[u][v]['weight'] = distance
     else:
-    
       edges = []
       with open(graph_file, 'r') as f:
         lines = f.readlines()
@@ -379,6 +378,29 @@ if __name__ == '__main__':
     ]
 
     G.add_weighted_edges_from(edges)
+  
+  # Deal with source node and dest node args
+  src_arg = args.src_node
+  if src_arg:
+    if src_arg not in G.nodes:
+      raise RuntimeError('Invalid --src-node argument. Source node must be a node in the network')
+    src_node = src_arg
+  else:
+    src_node = min(G.nodes)
+
+  dst_arg = args.dst_nodes
+  if dst_arg:
+    try:
+      dst = int(dst_arg)
+      if dst not in G.nodes:
+        raise ValueError('Destination node must be a node in the network')
+      if dst == src_node:
+        raise ValueError('Destination node cannot be the source node')
+      dst_nodes = []
+    except ValueError as e:
+      raise RuntimeError(f'Invalid --dst-nodes argument: {e}')
+  else:
+    dst_nodes = [max(G.nodes)]
 
   # Create pheromone table
   pheromone = {tuple(sorted((u, v))): 1.0 for u, v in G.edges}
@@ -400,22 +422,11 @@ if __name__ == '__main__':
   link_sever_prob = args.link_sever_prob
   link_sever_time = args.link_sever_time
 
-  # Source and destination parsing
-  src_node = args.src_node
-  assert src_node >= 0 and src_node in G.nodes, 'Source node must be a node within the network spec'
-
-  dst_node = args.dst_node
-  if dst_node == -1:
-    dst_node = max(G.nodes)
-  else:
-    assert dst_node != src_node , 'Destination node cannot equal the source node'
-    assert dst_node in G.nodes, 'Destination node must be a node within the network spec'
-
   global frame_count
   frame_count = 0
 
   # Run the sim
-  asyncio.run(run_simulation(src_node, dst_node, link_sever_prob, link_sever_time))
+  asyncio.run(run_simulation(src_node, dst_nodes, link_sever_prob, link_sever_time))
 
 
 
