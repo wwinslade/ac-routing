@@ -126,12 +126,37 @@ def update_pheromones(pheromone, paths):
 def draw_frame(iteration):
   # Setup figure
   ax_graph.clear()
+  ax_params.clear()
   ax_table.clear()
+
+  # Create the title depending on args
   global src_node, dst_nodes
   if len(dst_nodes) == len(G.nodes) - 1:
-    fig.suptitle(f'Routing {src_node} -> all | Iteration: {iteration}', fontsize=14)
+    fig.suptitle(f'Routing {src_node} -> all', fontsize=14)
   else:
-    fig.suptitle(f'Routing {src_node} -> {dst_nodes} | Iteration: {iteration}', fontsize=14)
+    fig.suptitle(f'Routing {src_node} -> {dst_nodes}', fontsize=14)
+
+  # Add params to fig
+  global alpha, beta, evap_rate, pheromone_deposit, num_ants, num_iterations, heuristic_method, link_sever_prob, link_sever_time
+  ax_params.axis('off')
+  if heuristic_method == '':
+    heuristic_text = 'Inverse Weight'
+  else:
+    heuristic_text = heuristic_method
+
+  param_text = f'''
+  Iteration: {iteration}
+  Alpha: {alpha:.2f}
+  Beta: {beta:.2f}
+  Evaporation Rate: {evap_rate:.2f}
+  Pher. Deposit Q: {pheromone_deposit}
+  Num Ants / Destination: {num_ants}
+  Heuristic: {heuristic_text}
+  Link Failure Prob.: {link_sever_prob}
+  Link Failure Duration: {link_sever_time}
+  Max Routes / Node: {routing_table_size}
+  '''
+  ax_params.text(0.01, 1.0, param_text, fontsize=10, va='top', family='monospace')
 
   # Get pheromone values, normalize and clamp for colorized representation on fig
   pher_vals = np.array([pheromone[tuple(sorted(e))] for e in G.edges])
@@ -143,7 +168,7 @@ def draw_frame(iteration):
   widths = np.clip(norm_pher * max_width, min_width, max_width)
 
   min_alpha = 1.0
-  colors = cm.viridis(norm_pher)
+  colors = cm.inferno(norm_pher)
   colors[:, -1] = np.clip(norm_pher, min_alpha, 1.0)
 
   # Draw nodes, their labels, and edges
@@ -157,49 +182,29 @@ def draw_frame(iteration):
   # }, ax=ax_graph)
 
   # Draw the ants
-  colors = cm.plasma(np.linspace(0, 1, len(ant_states)))
+  colors = cm.viridis(np.linspace(0, 1, len(ant_states)))
   for (x, y), c in zip(ant_states, colors):
     ax_graph.plot(x, y, 'o', markersize=8, color=c)
 
   # Turn off axes on graph
   ax_graph.axis('off')
-  ax_table.axis('off')
+  
 
   # Display N best routes on the figure per dst node
+  ax_table.axis('off')
   global routing_table
   table_lines = []
   for dst in sorted(routing_table.keys()):
     if dst == src_node:
       continue
-
     for i, (path, cost) in enumerate(routing_table[dst]):
       table_lines.append(f'To {dst}: [{i+1}]: {' -> '.join(map(str, path))} ({cost:.2f})')
-
-  # Add params to fig
-  global alpha, beta, evap_rate, pheromone_deposit, num_ants, num_iterations, heuristic_method, link_sever_prob, link_sever_time
-  table_lines.append('\n')
-  table_lines.append(f'Alpha: {alpha}')
-  table_lines.append(f'Beta: {beta}')
-  table_lines.append(f'Evaporation Rate: {evap_rate}')
-  table_lines.append(f'Pher. Deposit Q: {pheromone_deposit}')
-  table_lines.append(f'Num Ants: {num_ants}')
-
-  if heuristic_method == '':
-    table_lines.append(f'Heuristic: Inverse Weight')
-  else:
-    table_lines.append(f'Heuristic: {heuristic_method}')
-
-  if link_sever_prob != 0.0:
-    table_lines.append(f'Link Failure Prob: {link_sever_prob}')
-    table_lines.append(f'Link Failure Duration: {link_sever_time}')
-
+  
   table_text = '\n'.join(table_lines)
-
-  # Print desired text onto figure
-  ax_table.text(0, 1, table_text, fontsize=9, family='monospace', va='top')
-  global frame_count, save_frames
+  ax_table.text(0.01, 1.0, table_text, fontsize=6, family='monospace', va='top')
 
   # Save frames for later stitching if wanted
+  global frame_count, save_frames
   if save_frames:
     plt.savefig(f'frames/frame_{frame_count:06d}.png', dpi=150)
     frame_count += 1
@@ -279,7 +284,7 @@ async def run_simulation(src_node, dst_nodes, link_sever_prob, link_sever_time):
     ant_tasks = []
     ant_id = 0
     for dst_node in dst_nodes:
-      for ant_id in range(num_ants):
+      for _ in range(num_ants):
         ant_tasks.append(ant_agent(G, pheromone, src_node, dst_node, ant_id))
         ant_id += 1
     
@@ -406,7 +411,7 @@ if __name__ == '__main__':
         raise ValueError('Destination node must be a node in the network')
       if dst == src_node:
         raise ValueError('Destination node cannot be the source node')
-      dst_nodes = []
+      dst_nodes = [dst]
     except ValueError as e:
       raise RuntimeError(f'Invalid --dst-nodes argument: {e}')
 
@@ -419,7 +424,7 @@ if __name__ == '__main__':
   pos = nx.spring_layout(G, seed=69)
 
   # Prep pyplot subplot for visualization
-  fig, (ax_graph, ax_table) = plt.subplots(1, 2, figsize=(12, 8), gridspec_kw={'width_ratios': [4, 2]})
+  fig, (ax_graph, ax_params, ax_table) = plt.subplots(1, 3, figsize=(15, 8), gridspec_kw={'width_ratios': [3, 1, 2]})
   plt.tight_layout(rect=[0, 0, 1, 0.95])
   plt.ion()
 
