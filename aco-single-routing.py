@@ -12,7 +12,7 @@ def path_len(G, path):
   ''' Returns the length of the path given, according to the network'''
   return sum(G[path[i]][path[i+1]]['weight'] for i in range(len(path) - 1))
 
-def custom_heuristic(G, current, neighbor):
+def link_availability_heuristic(G, current, neighbor, failure_counts):
   return 1.0
 
 def default_heuristic(G, current, neighbor):
@@ -23,7 +23,7 @@ def default_heuristic(G, current, neighbor):
 def calculate_heuristic(G, current, neighbor):
   ''' Calculates the heuristic of the path to each neighbor '''
   handlers = {
-    'custom': custom_heuristic
+    'link-availability': link_availability_heuristic
   }
 
   handler = handlers.get(heuristic_method, default_heuristic)
@@ -255,7 +255,7 @@ async def run_simulation(src_node, dst_node, link_sever_prob, link_sever_time):
   plt.ioff()
   plt.show()
 
-if __name__ == '__main__':
+def argument_parser():
   parser = argparse.ArgumentParser(prog='ANTI-RIP', 
                                    description='ANTI-RIP: Ant-based Network Traffic Intelligent Routing & Improvement Protocol',
                                    epilog='Created by William Winslade on 24 April 2025')
@@ -274,6 +274,11 @@ if __name__ == '__main__':
   parser.add_argument('-T', '--link-sever-time', help='duration in iterations to keep link severed', default=3, type=int)
   parser.add_argument('-R', '--save-frames', help='Pass this flag to save rendered animation frames', action='store_true')
   args = parser.parse_args()
+
+  return args
+
+if __name__ == '__main__':
+  args = argument_parser()
 
   global alpha, beta, evap_rate, pheromone_deposit, num_ants, num_iterations, animation_speed, heuristic_method, save_frames
   graph_file = args.graph_file
