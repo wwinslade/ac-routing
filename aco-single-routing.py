@@ -127,8 +127,11 @@ def draw_frame(iteration):
   # Setup figure
   ax_graph.clear()
   ax_table.clear()
-  global src_node, dst_node
-  fig.suptitle(f'Routing {src_node} -> {dst_node} | Iteration: {iteration}', fontsize=14)
+  global src_node, dst_nodes
+  if len(dst_nodes) == len(G.nodes) - 1:
+    fig.suptitle(f'Routing {src_node} -> all | Iteration: {iteration}', fontsize=14)
+  else:
+    fig.suptitle(f'Routing {src_node} -> {dst_nodes} | Iteration: {iteration}', fontsize=14)
 
   # Get pheromone values, normalize and clamp for colorized representation on fig
   pher_vals = np.array([pheromone[tuple(sorted(e))] for e in G.edges])
@@ -211,7 +214,7 @@ async def draw_loop():
 draw_loop.iteration = 0
 
 
-async def run_simulation(src_node, dst_node, link_sever_prob, link_sever_time):
+async def run_simulation(src_node, dst_nodes, link_sever_prob, link_sever_time):
   ''' Run the ACO simulation '''
   severed_edges = {}
   global routing_table
@@ -222,7 +225,7 @@ async def run_simulation(src_node, dst_node, link_sever_prob, link_sever_time):
     draw_loop.iteration = it + 1
     global ant_states
     ant_states = []
-    for _ in range(num_ants):
+    for _ in range(num_ants * len(dst_nodes)):
       ant_states.append((pos[src_node][0], pos[src_node][1]))
 
     # Handle link severing
@@ -274,8 +277,11 @@ async def run_simulation(src_node, dst_node, link_sever_prob, link_sever_time):
     draw_task = asyncio.create_task(draw_loop())
 
     ant_tasks = []
-    for ant_id in range(num_ants):
-      ant_tasks.append(ant_agent(G, pheromone, src_node, dst_node, ant_id))
+    ant_id = 0
+    for dst_node in dst_nodes:
+      for ant_id in range(num_ants):
+        ant_tasks.append(ant_agent(G, pheromone, src_node, dst_node, ant_id))
+        ant_id += 1
     
     
     paths = await asyncio.gather(*ant_tasks)
