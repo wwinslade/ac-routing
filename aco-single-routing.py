@@ -7,6 +7,7 @@ import asyncio
 import argparse
 import math
 from matplotlib.animation import FuncAnimation, PillowWriter
+from collections import defaultdict
 
 def path_len(G, path):
   ''' Returns the length of the path given, according to the network'''
@@ -123,11 +124,13 @@ def update_pheromones(pheromone, paths):
         pheromone[edge] += pheromone_deposit / length
 
 def draw_frame(iteration):
+  # Setup figure
   ax_graph.clear()
   ax_table.clear()
   global src_node, dst_node
   fig.suptitle(f'Routing {src_node} -> {dst_node} | Iteration: {iteration}', fontsize=14)
 
+  # Get pheromone values, normalize and clamp for colorized representation on fig
   pher_vals = np.array([pheromone[tuple(sorted(e))] for e in G.edges])
   max_pher = pher_vals.max() if pher_vals.max() > 0 else 1.0
   norm_pher = pher_vals / max_pher
@@ -140,28 +143,36 @@ def draw_frame(iteration):
   colors = cm.viridis(norm_pher)
   colors[:, -1] = np.clip(norm_pher, min_alpha, 1.0)
 
+  # Draw nodes, their labels, and edges
   nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=600, ax=ax_graph)
   nx.draw_networkx_labels(G, pos, ax=ax_graph)
   nx.draw_networkx_edges(G, pos, width=widths, edge_color=colors, ax=ax_graph)
 
+  # Draw pheromone values on edges
   # nx.draw_networkx_edge_labels(G, pos, edge_labels={
   #     (u, v): f"{pheromone[tuple(sorted((u, v)))]:.2f}" for u, v in G.edges
   # }, ax=ax_graph)
 
+  # Draw the ants
   colors = cm.plasma(np.linspace(0, 1, len(ant_states)))
   for (x, y), c in zip(ant_states, colors):
     ax_graph.plot(x, y, 'o', markersize=8, color=c)
 
+  # Turn off axes on graph
   ax_graph.axis('off')
-
   ax_table.axis('off')
+
+  # Display N best routes on the figure per dst node
   global routing_table
-  table_lines = [
-      f"To {dst:>2}: {' -> '.join(map(str, routing_table[dst][0]))}  ({routing_table[dst][1]:.2f})"
-      for dst in sorted(routing_table.keys())
-      if dst != src_node
-  ]
-  # Add params to frame
+  table_lines = []
+  for dst in sorted(routing_table.keys()):
+    if dst == src_node:
+      continue
+
+    for i, (path, cost) in enumerate(routing_table[dst]):
+      table_lines.append(f'To {dst}: [{i+1}]: {' -> '.join(map(str, path))} ({cost:.2f})')
+
+  # Add params to fig
   global alpha, beta, evap_rate, pheromone_deposit, num_ants, num_iterations, heuristic_method, link_sever_prob, link_sever_time
   table_lines.append('\n')
   table_lines.append(f'Alpha: {alpha}')
@@ -181,14 +192,17 @@ def draw_frame(iteration):
 
   table_text = '\n'.join(table_lines)
 
+  # Print desired text onto figure
   ax_table.text(0, 1, table_text, fontsize=9, family='monospace', va='top')
   global frame_count, save_frames
+
+  # Save frames for later stitching if wanted
   if save_frames:
     plt.savefig(f'frames/frame_{frame_count:06d}.png', dpi=150)
     frame_count += 1
+ 
   plt.pause(0.01)
   
-
 
 async def draw_loop():
   while True:
@@ -201,7 +215,7 @@ async def run_simulation(src_node, dst_node, link_sever_prob, link_sever_time):
   ''' Run the ACO simulation '''
   severed_edges = {}
   global routing_table
-  routing_table = {}
+  routing_table = defaultdict(list)
 
   plt.ion()
   for it in range(num_iterations):
@@ -221,13 +235,20 @@ async def run_simulation(src_node, dst_node, link_sever_prob, link_sever_time):
 
         # Check if this link going down will affect the routing table
         routes_to_remove = []
-        for dst, (path, _) in routing_table.items():
-          if any(tuple(sorted((path[i], path[i + 1]))) == edge_sorted for i in range(len(path) - 1)):
-            routes_to_remove.append(dst)
+        for dst in list(routing_table.keys()):
+          routes = routing_table[dst]
+          filtered_routes = [
+            (path, cost) for (path, cost) in routes
+            if not any(tuple(sorted((path[i], path[i+1]))) == edge_sorted for i in range(len(path) - 1)) 
+          ]
         
-        for dst in routes_to_remove:
-          print(f'Removing route {src_node} -> {dst} due to link severed {edge_sorted}')
-          del routing_table[dst]
+          if len(filtered_routes) < len(routes):
+            print(f'Removed {len(routes) - len(filtered_routes)} route(s) to {dst} due to link severed {edge_sorted}')
+
+          if filtered_routes:
+            routing_table[dst] = filtered_routes
+          else:
+            del routing_table[dst]
 
         # Add the edge to the severed_edges dict, remove it from the graph
         severed_edges[edge_sorted] = {
@@ -262,8 +283,12 @@ async def run_simulation(src_node, dst_node, link_sever_prob, link_sever_time):
       if path:
         dst = path[-1]
         length = path_len(G, path)
-        if dst not in routing_table or length < routing_table[dst][1]:
-          routing_table[dst] = (path, length)
+        routes = routing_table.get(dst, [])
+        if not any(existing_path == path for existing_path, _ in routes):
+          routes.append((path, length))
+          routes.sort(key=lambda x: x[1])
+          routing_table[dst] = routes[:routing_table_size]
+      
     draw_frame(it + 1)
     draw_task.cancel()
     update_pheromones(pheromone, paths)
@@ -295,6 +320,7 @@ def argument_parser():
   parser.add_argument('-H', '--heuristic-method', help='heuristic calculation method', default='', type=str)
   parser.add_argument('-L', '--link-sever-prob', help='probability of a link being severed (0, 1)', default=0.0, type=float)
   parser.add_argument('-T', '--link-sever-time', help='duration in iterations to keep link severed', default=3, type=int)
+  parser.add_argument('-RT', '--routing-table-size', help='Max number of paths to save to routing table per destination', default=1, type=int)
   parser.add_argument('-R', '--save-frames', help='Pass this flag to save rendered animation frames', action='store_true')
   args = parser.parse_args()
 
@@ -303,7 +329,7 @@ def argument_parser():
 if __name__ == '__main__':
   args = argument_parser()
 
-  global alpha, beta, evap_rate, pheromone_deposit, num_ants, num_iterations, animation_speed, heuristic_method, save_frames
+  global alpha, beta, evap_rate, pheromone_deposit, num_ants, num_iterations, animation_speed, heuristic_method, save_frames, routing_table_size
   graph_file = args.graph_file
   alpha = args.alpha
   beta = args.beta
@@ -314,6 +340,7 @@ if __name__ == '__main__':
   animation_speed = args.animation_speed
   heuristic_method = args.heuristic_method
   save_frames = args.save_frames
+  routing_table_size = args.routing_table_size
 
   ## Graph and pheromone table creation
   global G, pos, pheromone, ant_states, failure_counts
