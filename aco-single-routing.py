@@ -12,12 +12,13 @@ def path_len(G, path):
   ''' Returns the length of the path given, according to the network'''
   return sum(G[path[i]][path[i+1]]['weight'] for i in range(len(path) - 1))
 
-def link_availability_heuristic(G, current, neighbor, failure_counts):
+def link_availability_heuristic(G, current, neighbor):
   # failure_counts: {edge: failure_count}
+  global failure_counts
   edge = tuple(sorted((current, neighbor)))
   fail_score = failure_counts.get(edge, 0)
   edge_weight = G[current][neighbor]['weight']
-  
+
   return (1.0 / edge_weight) * math.exp(-fail_score)
 
 def connectivity_heuristic(G, current, neighbor):
@@ -213,9 +214,11 @@ async def run_simulation(src_node, dst_node, link_sever_prob, link_sever_time):
     # Handle link severing
     if link_sever_prob:
       if random.random() < link_sever_prob:
+        # Get an edge from the graph
         edge = random.choice(list(G.edges))
         u, v = edge
         edge_sorted = tuple(sorted((u, v)))
+
         # Check if this link going down will affect the routing table
         routes_to_remove = []
         for dst, (path, _) in routing_table.items():
@@ -226,10 +229,16 @@ async def run_simulation(src_node, dst_node, link_sever_prob, link_sever_time):
           print(f'Removing route {src_node} -> {dst} due to link severed {edge_sorted}')
           del routing_table[dst]
 
+        # Add the edge to the severed_edges dict, remove it from the graph
         severed_edges[edge_sorted] = {
           'time_remaining': link_sever_time,
           'weight': G[u][v]['weight']
         }
+
+        # Update the edge failure count
+        failure_counts[edge_sorted] = failure_counts.get(edge_sorted, 0) + 1
+
+        # Remove the edge from the graph
         G.remove_edge(u, v)
         print(f'it:{it} -- ({u}, {v}) severed for {link_sever_time}')
 
@@ -307,7 +316,7 @@ if __name__ == '__main__':
   save_frames = args.save_frames
 
   ## Graph and pheromone table creation
-  global G, pos, pheromone, ant_states
+  global G, pos, pheromone, ant_states, failure_counts
 
   # Check if the user specified a graph file
   if graph_file:
@@ -356,6 +365,9 @@ if __name__ == '__main__':
 
   # For ant animation
   ant_states = []
+
+  # For availability heuristic
+  failure_counts = {}
 
   # Link severing params
   link_sever_prob = args.link_sever_prob
