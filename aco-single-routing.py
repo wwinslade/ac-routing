@@ -3,6 +3,7 @@ import networkx as nx
 import random
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+from matplotlib.colors import Normalize
 import asyncio
 import argparse
 import math
@@ -12,6 +13,11 @@ from collections import defaultdict
 def path_len(G, path):
   ''' Returns the length of the path given, according to the network'''
   return sum(G[path[i]][path[i+1]]['weight'] for i in range(len(path) - 1))
+  # tot_pher = 0.0
+  # for i in range(len(path) - 1):
+  #   edge = tuple(sorted((path[i], path[i+1])))
+  #   tot_pher += pheromone[edge]
+  # return 1 - (tot_pher / len(path))
 
 def link_availability_heuristic(G, current, neighbor):
   # failure_counts: {edge: failure_count}
@@ -32,12 +38,25 @@ def default_heuristic(G, current, neighbor):
   edge_weight = G[current][neighbor]['weight']
   return (1.0 / edge_weight)
 
+def hybrid_heuristic(G, current, neighbor):
+  global failure_counts
+  edge = tuple(sorted((current, neighbor)))
+  fail_score = failure_counts.get(edge, 0)
+  edge_weight = G[current][neighbor]['weight']
+  hybrid_score = (
+    2.0 * (1 - edge_weight) +
+    1 * G.degree(neighbor) +
+    0.75 * (- fail_score)
+  )
+
+  return hybrid_score
 
 def calculate_heuristic(G, current, neighbor):
   ''' Calculates the heuristic of the path to each neighbor '''
   handlers = {
     'link-availability': link_availability_heuristic,
-    'connectivity': connectivity_heuristic
+    'connectivity': connectivity_heuristic,
+    'hybrid': hybrid_heuristic,
   }
   if heuristic_method and heuristic_method not in handlers:
     print('Unrecognized heuristic method specified -- Using default (inverse weight)')
@@ -126,37 +145,14 @@ def update_pheromones(pheromone, paths):
 def draw_frame(iteration):
   # Setup figure
   ax_graph.clear()
-  ax_params.clear()
   ax_table.clear()
 
   # Create the title depending on args
   global src_node, dst_nodes
   if len(dst_nodes) == len(G.nodes) - 1:
-    fig.suptitle(f'Routing {src_node} -> all', fontsize=14)
+    fig.suptitle(f'Routing {src_node} -> all | Iteration {iteration}', fontsize=14)
   else:
-    fig.suptitle(f'Routing {src_node} -> {dst_nodes}', fontsize=14)
-
-  # Add params to fig
-  global alpha, beta, evap_rate, pheromone_deposit, num_ants, num_iterations, heuristic_method, link_sever_prob, link_sever_time
-  ax_params.axis('off')
-  if heuristic_method == '':
-    heuristic_text = 'Inverse Weight'
-  else:
-    heuristic_text = heuristic_method
-
-  param_text = f'''
-  Iteration: {iteration}
-  Alpha: {alpha:.2f}
-  Beta: {beta:.2f}
-  Evaporation Rate: {evap_rate:.2f}
-  Pher. Deposit Q: {pheromone_deposit}
-  Num Ants / Destination: {num_ants}
-  Heuristic: {heuristic_text}
-  Link Failure Prob.: {link_sever_prob}
-  Link Failure Duration: {link_sever_time}
-  Max Routes / Node: {routing_table_size}
-  '''
-  ax_params.text(0.01, 1.0, param_text, fontsize=10, va='top', family='monospace')
+    fig.suptitle(f'Routing {src_node} -> {dst_nodes} | Iteration {iteration}', fontsize=14)
 
   # Get pheromone values, normalize and clamp for colorized representation on fig
   pher_vals = np.array([pheromone[tuple(sorted(e))] for e in G.edges])
@@ -172,7 +168,7 @@ def draw_frame(iteration):
   colors[:, -1] = np.clip(norm_pher, min_alpha, 1.0)
 
   # Draw nodes, their labels, and edges
-  nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=600, ax=ax_graph)
+  nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=300, ax=ax_graph)
   nx.draw_networkx_labels(G, pos, ax=ax_graph)
   nx.draw_networkx_edges(G, pos, width=widths, edge_color=colors, ax=ax_graph)
 
@@ -182,7 +178,7 @@ def draw_frame(iteration):
   # }, ax=ax_graph)
 
   # Draw the ants
-  colors = cm.viridis(np.linspace(0, 1, len(ant_states)))
+  colors = cm.hsv(np.linspace(0, 1, len(ant_states)))
   for (x, y), c in zip(ant_states, colors):
     ax_graph.plot(x, y, 'o', markersize=8, color=c)
 
@@ -193,12 +189,12 @@ def draw_frame(iteration):
   # Display N best routes on the figure per dst node
   ax_table.axis('off')
   global routing_table
-  table_lines = []
+  table_lines = [f'Routing Table for Node {src_node}\n--------------------\n']
   for dst in sorted(routing_table.keys()):
     if dst == src_node:
       continue
     for i, (path, cost) in enumerate(routing_table[dst]):
-      table_lines.append(f'To {dst}: [{i+1}]: {' -> '.join(map(str, path))} ({cost:.2f})')
+      table_lines.append(f'To {dst}: [{i+1}]: ({cost:.2f}) {' -> '.join(map(str, path))} ')
   
   table_text = '\n'.join(table_lines)
   ax_table.text(0.01, 1.0, table_text, fontsize=6, family='monospace', va='top')
@@ -226,7 +222,8 @@ async def run_simulation(src_node, dst_nodes, link_sever_prob, link_sever_time):
   routing_table = defaultdict(list)
 
   plt.ion()
-  for it in range(num_iterations):
+  it = 0
+  while it < num_iterations or run_continuously:
     draw_loop.iteration = it + 1
     global ant_states
     ant_states = []
@@ -310,6 +307,9 @@ async def run_simulation(src_node, dst_nodes, link_sever_prob, link_sever_time):
       G.add_edge(u, v, weight=weight)
       del severed_edges[edge]
       print(f'it:{it} -- ({u}, {v}) restored')
+    
+    # Increase iteration counter
+    it += 1
   
   plt.ioff()
   plt.show()
@@ -326,13 +326,14 @@ def argument_parser():
   parser.add_argument('-N', '--num-ants', help='number of ant agents', default=10, type=int)
   parser.add_argument('-I', '--iterations', help='number of iterations', default=25, type=int)
   parser.add_argument('-E', '--evap-rate', help='evaporation rate', default=0.5, type=float)
-  parser.add_argument('-D', '--pheromone-deposit', help='pheromone deposit quantity', default=100.0, type=float)
+  parser.add_argument('-D', '--pheromone-deposit', help='pheromone deposit quantity', default=100, type=float)
   parser.add_argument('-S', '--animation-speed', help='animation speed, lower is slower', default=1.0, type=float)
   parser.add_argument('-H', '--heuristic-method', help='heuristic calculation method', default='', type=str)
   parser.add_argument('-L', '--link-sever-prob', help='probability of a link being severed (0, 1)', default=0.0, type=float)
   parser.add_argument('-T', '--link-sever-time', help='duration in iterations to keep link severed', default=3, type=int)
   parser.add_argument('-RT', '--routing-table-size', help='Max number of paths to save to routing table per destination', default=1, type=int)
   parser.add_argument('-R', '--save-frames', help='Pass this flag to save rendered animation frames', action='store_true')
+  parser.add_argument('--inf', help='Run simulation forever', action='store_true')
   args = parser.parse_args()
 
   return args
@@ -340,7 +341,7 @@ def argument_parser():
 if __name__ == '__main__':
   args = argument_parser()
 
-  global alpha, beta, evap_rate, pheromone_deposit, num_ants, num_iterations, animation_speed, heuristic_method, save_frames, routing_table_size
+  global alpha, beta, evap_rate, pheromone_deposit, num_ants, num_iterations, animation_speed, heuristic_method, save_frames, routing_table_size, run_continuously
   graph_file = args.graph_file
   alpha = args.alpha
   beta = args.beta
@@ -348,6 +349,7 @@ if __name__ == '__main__':
   pheromone_deposit = args.pheromone_deposit
   num_ants = args.num_ants
   num_iterations = args.iterations
+  run_continuously = args.inf
   animation_speed = args.animation_speed
   heuristic_method = args.heuristic_method
   save_frames = args.save_frames
@@ -415,18 +417,55 @@ if __name__ == '__main__':
     except ValueError as e:
       raise RuntimeError(f'Invalid --dst-nodes argument: {e}')
 
-    
-
   # Create pheromone table
   pheromone = {tuple(sorted((u, v))): 1.0 for u, v in G.edges}
 
   # For animation layout: positions
   pos = nx.spring_layout(G, seed=69)
+  for u, v in G.edges():
+    x1, y1 = pos[u]
+    x2, y2 = pos[v]
+    dist = math.hypot(x1 - x2, y1 - y2)
+    G[u][v]['weight'] = dist
+
+  # Link severing params
+  link_sever_prob = args.link_sever_prob
+  link_sever_time = args.link_sever_time
 
   # Prep pyplot subplot for visualization
-  fig, (ax_graph, ax_params, ax_table) = plt.subplots(1, 3, figsize=(15, 8), gridspec_kw={'width_ratios': [3, 1, 2]})
+  fig, (ax_graph, ax_params, ax_table) = plt.subplots(1, 3, figsize=(12, 8), gridspec_kw={'width_ratios': [3, 1, 2]})
   plt.tight_layout(rect=[0, 0, 1, 0.95])
   plt.ion()
+
+  ax_params.axis('off')
+  if heuristic_method == '':
+    heuristic_text = 'Inverse Weight'
+  else:
+    heuristic_text = heuristic_method
+
+  param_text = f'''
+  Alpha: {alpha:.2f}
+  Beta: {beta:.2f}
+  Evaporation Rate: {evap_rate:.2f}
+  Pher. Deposit Q: {pheromone_deposit}
+  Num Ants / Destination: {num_ants}
+  Heuristic: {heuristic_text}
+  Link Failure Prob.: {link_sever_prob}
+  Link Failure Duration: {link_sever_time}
+  Max Routes / Node: {routing_table_size}
+  '''
+  ax_params.text(0.01, 1.0, param_text, fontsize=9, va='top', family='monospace')
+
+  # Display color bars for better interpretations
+  pher_sm = cm.ScalarMappable(cmap=cm.inferno, norm=Normalize(vmin=0, vmax=1))
+  pher_cbar = plt.colorbar(pher_sm, ax=ax_params, orientation='horizontal')
+  pher_cbar.set_ticks([0, 1])
+  pher_cbar.set_ticklabels(['Less Pheromone', 'More Pheromone'])
+
+  ant_sm = cm.ScalarMappable(cmap=cm.hsv, norm=Normalize(vmin=0, vmax=1))
+  ant_cbar = plt.colorbar(ant_sm, ax=ax_params, orientation='horizontal')
+  ant_cbar.set_ticks([0, 1])
+  ant_cbar.set_ticklabels(['Low Ant ID', 'High Ant ID'])
 
   # For ant animation
   ant_states = []
@@ -434,9 +473,7 @@ if __name__ == '__main__':
   # For availability heuristic
   failure_counts = {}
 
-  # Link severing params
-  link_sever_prob = args.link_sever_prob
-  link_sever_time = args.link_sever_time
+  
 
   global frame_count
   frame_count = 0
